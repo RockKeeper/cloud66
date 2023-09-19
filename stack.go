@@ -99,6 +99,20 @@ type RedeployResponse struct {
 	AsyncActionId *int   `json:"async_action_id"`
 }
 
+type StackActionResponse struct {
+	Response []StackAction `json:"response"`
+}
+
+type StackAction struct {
+	ID              int64             `json:"id"`
+	Action          string            `json:"action"`
+	StartedAt       string            `json:"started_at"`
+	FinishedAt      string            `json:"finished_at"`
+	FinishedSuccess bool              `json:"finished_success"`
+	FinishedMessage string            `json:"finished_message"`
+	Metadata        map[string]string `json:"metadata"`
+}
+
 func (s Stack) Status() string {
 	if s.Framework == "skycap" {
 		return skycapStatus[s.StatusCode]
@@ -112,6 +126,39 @@ func (s Stack) Namespace() string {
 
 func (s Stack) Health() string {
 	return healthStatus[s.HealthCode]
+}
+
+func (c *Client) StackActions(stackUid string, metadata map[string]string) ([]StackAction, error) {
+	queryStrings := make(map[string]string)
+	queryStrings["page"] = "1"
+	for key, value := range metadata {
+		queryStrings[key] = value
+	}
+
+	var p Pagination
+	var result []StackAction
+	var stacksRes StackActionResponse
+
+	for {
+		req, err := c.NewRequest("GET", "/stacks/"+stackUid+"/actions.json", nil, queryStrings)
+		if err != nil {
+			return nil, err
+		}
+
+		stacksRes = StackActionResponse{}
+		err = c.DoReq(req, &stacksRes, &p)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, stacksRes.Response...)
+		if p.Current < p.Next {
+			queryStrings["page"] = strconv.Itoa(p.Next)
+		} else {
+			break
+		}
+	}
+	return result, nil
 }
 
 func (c *Client) StackList() ([]Stack, error) {
