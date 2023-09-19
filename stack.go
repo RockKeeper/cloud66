@@ -99,6 +99,16 @@ type RedeployResponse struct {
 	AsyncActionId *int   `json:"async_action_id"`
 }
 
+type StackAction struct {
+	ID              int64             `json:"id"`
+	Action          string            `json:"action"`
+	StartedAt       string            `json:"started_at"`
+	FinishedAt      string            `json:"finished_at"`
+	FinishedSuccess bool              `json:"finished_success"`
+	FinishedMessage string            `json:"finished_message"`
+	Metadata        map[string]string `json:"metadata"`
+}
+
 func (s Stack) Status() string {
 	if s.Framework == "skycap" {
 		return skycapStatus[s.StatusCode]
@@ -112,6 +122,39 @@ func (s Stack) Namespace() string {
 
 func (s Stack) Health() string {
 	return healthStatus[s.HealthCode]
+}
+
+func (c *Client) StackActions(stackUid string, optionalUserReference ...string) ([]StackAction, error) {
+	queryStrings := make(map[string]string)
+	queryStrings["page"] = "1"
+	if len(optionalUserReference) > 0 {
+		queryStrings["user_reference"] = optionalUserReference[0]
+	}
+
+	var p Pagination
+	var result []StackAction
+	var stacksRes []StackAction
+
+	for {
+		req, err := c.NewRequest("GET", "/stacks/"+stackUid+"/actions.json", nil, queryStrings)
+		if err != nil {
+			return nil, err
+		}
+
+		stacksRes = nil
+		err = c.DoReq(req, &stacksRes, &p)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, stacksRes...)
+		if p.Current < p.Next {
+			queryStrings["page"] = strconv.Itoa(p.Next)
+		} else {
+			break
+		}
+	}
+	return result, nil
 }
 
 func (c *Client) StackList() ([]Stack, error) {
@@ -541,7 +584,7 @@ func (c *Client) LeaseSync(stackUid string, ipAddress *string, timeToOpen *int, 
 	return genericRes, err
 }
 
-func (c *Client) RedeployStack(stackUid, gitRef, deployStrategy, deploymentProfile string, rolloutStrategy *string, canaryPercentage *int, services []string) (*RedeployResponse, error) {
+func (c *Client) RedeployStack(stackUid, gitRef, deployStrategy, deploymentProfile string, rolloutStrategy *string, canaryPercentage *int, services []string, optionalUserReference ...string) (*RedeployResponse, error) {
 	params := struct {
 		GitRef            string   `json:"git_ref"`
 		DeployStrategy    string   `json:"deploy_strategy"`
@@ -557,7 +600,13 @@ func (c *Client) RedeployStack(stackUid, gitRef, deployStrategy, deploymentProfi
 		CanaryPercentage:  canaryPercentage,
 		Services:          services,
 	}
-	req, err := c.NewRequest("POST", "/stacks/"+stackUid+"/deployments.json", params, nil)
+
+	queryStrings := make(map[string]string)
+	if len(optionalUserReference) > 0 {
+		queryStrings["user_reference"] = optionalUserReference[0]
+	}
+
+	req, err := c.NewRequest("POST", "/stacks/"+stackUid+"/deployments.json", params, queryStrings)
 	if err != nil {
 		return nil, err
 	}
